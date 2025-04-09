@@ -4,8 +4,11 @@
 use core::{fmt::Debug, marker::PhantomData};
 
 use defmt::{debug, error, info, Format};
-use embassy_stm32::gpio::{AnyPin, Level, Output};
-use embassy_time::Timer;
+use embassy_stm32::{
+    gpio::{AnyPin, Input, Level, Output},
+    rtc::DateTime,
+};
+use embassy_time::{Instant, Timer};
 use embedded_hal_async::i2c::I2c;
 use heapless::FnvIndexMap;
 
@@ -406,5 +409,21 @@ where
         i2c.read(self.address, &mut buf).await?;
         let hv_value = ((buf[2] as u16) << 8) | buf[1] as u16;
         Ok(hv_value)
+    }
+}
+
+pub struct IRSensor<'i> {
+    pin: Input<'i>,
+}
+
+impl<'i> IRSensor<'i> {
+    pub fn new(input_pin: AnyPin) -> Self {
+        Self {
+            pin: Input::new(input_pin, embassy_stm32::gpio::Pull::Down),
+        }
+    }
+
+    pub fn movement_detected(&mut self) -> bool {
+        self.pin.is_high()
     }
 }
