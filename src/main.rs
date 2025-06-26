@@ -1,18 +1,16 @@
 #![no_std]
 #![no_main]
 
-use core::sync::atomic::AtomicBool;
-
 use controller_module::{IRSensor, NixieController};
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_stm32::peripherals::USART4;
 use embassy_stm32::{
     bind_interrupts,
     gpio::{AnyPin, Level, Output, Pin, Speed},
-    i2c::{ErrorInterruptHandler, EventInterruptHandler, I2c},
+    i2c::I2c,
     peripherals::I2C1,
-    rtc::DateTime,
     time::Hertz,
 };
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
@@ -24,9 +22,8 @@ const SECONDS_TO_SHOW_TIME: u64 = 3;
 static MOVEMENT_DETECTED: Signal<CriticalSectionRawMutex, bool> = Signal::new();
 
 bind_interrupts!(struct Irqs {
-    // I2C1 => EventInterruptHandler<I2C1>, ErrorInterruptHandler<I2C1>;
-    I2C1_EV => EventInterruptHandler<I2C1>;
-    I2C1_ER => ErrorInterruptHandler<I2C1>;
+    I2C1 => embassy_stm32::i2c::EventInterruptHandler<I2C1>, embassy_stm32::i2c::ErrorInterruptHandler<I2C1>;
+    USART4 => embassy_stm32::usart::InterruptHandler<USART4>;
 });
 
 #[embassy_executor::task]
@@ -48,40 +45,46 @@ pub async fn ir_sensor_task(detection_pin: AnyPin) -> ! {
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
     let p = embassy_stm32::init(Default::default());
-    let mut led = Output::new(p.PC13, Level::High, embassy_stm32::gpio::Speed::Low);
+    let mut _led = Output::new(p.PB1, Level::High, embassy_stm32::gpio::Speed::Low);
 
     let mut i2c = I2c::new(
         p.I2C1,
         p.PB8,
-        p.PB9,
+        p.PB7,
         Irqs,
-        // p.DMA1_CH1,
-        // p.DMA1_CH2,
-        p.DMA1_CH6,
-        p.DMA1_CH5,
+        p.DMA1_CH1,
+        p.DMA1_CH2,
         Hertz(100_000),
         Default::default(),
     );
 
+    let _serial = embassy_stm32::usart::Uart::new(
+        p.USART4,
+        p.PA1,
+        p.PA0,
+        Irqs,
+        p.DMA1_CH3,
+        p.DMA1_CH4,
+        Default::default(),
+    );
+
     let reset_pins = [
-        Output::new(p.PB6, Level::Low, Speed::Low),
-        Output::new(p.PB5, Level::Low, Speed::Low),
-        Output::new(p.PB4, Level::Low, Speed::Low),
-        Output::new(p.PB3, Level::Low, Speed::Low),
+        Output::new(p.PC14, Level::Low, Speed::High),
+        Output::new(p.PC15, Level::Low, Speed::High),
+        Output::new(p.PA3, Level::Low, Speed::High),
+        Output::new(p.PA5, Level::Low, Speed::High),
     ];
 
     let mut nixie_controller: NixieController<'_, _, N_OF_DIGITS> =
-        NixieController::new(&mut i2c, p.PB7.degrade(), reset_pins);
+        NixieController::new(&mut i2c, p.PA7.degrade(), reset_pins);
 
-    nixie_controller.init_modules().await.unwrap();
-
-    if nixie_controller.get_max_number() == 0 {
-        warn!("No modules added to Nixie Controller");
-        loop {}
-    } else {
-        info!("Max number: {}", nixie_controller.get_max_number());
+    while nixie_controller.get_max_number() == 0 {
+        nixie_controller.init_modules().await.unwrap();
+        Timer::after_millis(500).await;
     }
-    spawner.spawn(ir_sensor_task(p.PB2.degrade())).unwrap();
+    info!("Max number: {}", nixie_controller.get_max_number());
+
+    spawner.spawn(ir_sensor_task(p.PA8.degrade())).unwrap();
 
     info!("Loop start");
     let delay_ms = 250;

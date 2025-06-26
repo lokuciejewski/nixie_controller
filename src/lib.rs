@@ -6,9 +6,8 @@ use core::{fmt::Debug, marker::PhantomData};
 use defmt::{debug, error, info, Format};
 use embassy_stm32::{
     gpio::{AnyPin, Input, Level, Output},
-    rtc::DateTime,
 };
-use embassy_time::{Instant, Timer};
+use embassy_time::{Timer};
 use embedded_hal_async::i2c::I2c;
 use heapless::FnvIndexMap;
 
@@ -126,12 +125,12 @@ where
         for address in 0x0..0x7f {
             match self.i2c.read(address, buf).await {
                 Ok(_) => {
-                    if buf[0] == address {
+                    if buf[0] == address || buf[0] == DEFAULT_MODULE_ADDRESS {
                         debug!("Device on address 0x{:02x} validated", address);
                         return Ok(address);
                     } else {
                         debug!(
-                            "Device found on address 0x{:02x} but the register has wrong value: {}",
+                            "Device found on address 0x{:02x} but the register has wrong value: 0x{:02x}",
                             address, buf[0]
                         );
                     }
@@ -172,11 +171,11 @@ where
             pin.set_low(); // Disable all modules
         }
 
-        Timer::after_millis(5).await;
+        Timer::after_millis(10).await;
 
         self.pin_positions[position_on_display as usize].set_high(); // Enable the module that should be assigned
 
-        Timer::after_millis(50).await;
+        Timer::after_millis(100).await;
 
         let Ok(address) = self.find_module_address().await else {
             return Err(NixieControllerError::ModuleNotFound);
@@ -191,6 +190,15 @@ where
                 .change_address(self.i2c, self.get_next_free_address())
                 .await
                 .map_err(|e| NixieControllerError::CommunicationError(e))?;
+            Timer::after_millis(100).await;
+            let mut buf = [NixieModuleRegisters::Address as u8, 0, 0];
+            self.i2c
+                .read(module.address, &mut buf)
+                .await
+                .map_err(|e| NixieControllerError::CommunicationError(e))?;
+            if buf[1] != module.address {
+                return Err(NixieControllerError::InternalError);
+            }
             debug!(
                 "Module address changed from 0x{:02x} to 0x{:02x}",
                 address, module.address
