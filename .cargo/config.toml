@@ -1,5 +1,9 @@
-[target.'cfg(all(target_arch = "arm", target_os = "none"))']
-runner = "probe-rs run --chip STM32U031F8Px"
+[target.'cfg(all(feature = "evalboard", target_arch = "arm", target_os = "none"))']
+runner = "probe-rs run --chip STM32U031R8Ix"
+
+[target.'cfg(all(feature = "sample_1", target_arch = "arm", target_os = "none"))']
+runner = "probe-rs run --chip STM32U031C8Tx"
+
 
 [build]
 target = "thumbv6m-none-eabi"
