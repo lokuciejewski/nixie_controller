@@ -2,17 +2,19 @@
 #![no_main]
 
 use controller_module::{IRSensor, NixieController};
+use cortex_m_rt::{exception, ExceptionFrame};
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Input, Pull};
+use embassy_stm32::rcc::Sysclk;
 use embassy_stm32::{
     bind_interrupts,
-    gpio::{AnyPin, Level, Output, Pin, Speed},
+    gpio::{Level, Output, Speed},
     i2c::I2c,
     peripherals::I2C1,
-    time::Hertz,
 };
+use embassy_stm32::{rcc, Config};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Instant, Ticker, Timer};
 use panic_probe as _;
@@ -40,7 +42,7 @@ bind_interrupts!(struct Irqs {
 });
 
 #[embassy_executor::task]
-pub async fn ir_sensor_task(detection_pin: AnyPin) -> ! {
+pub async fn ir_sensor_task(detection_pin: Input<'static>) -> ! {
     let mut ir_sensor = IRSensor::new(detection_pin);
     let mut detection_ticker = Ticker::every(Duration::from_millis(200));
     loop {
@@ -56,8 +58,16 @@ pub async fn ir_sensor_task(detection_pin: AnyPin) -> ! {
 }
 
 #[embassy_executor::main]
-async fn main(spawner: Spawner) -> ! {
-    let p = embassy_stm32::init(Default::default());
+async fn main(_spawner: Spawner) -> ! {
+    let rcc_conf = rcc::Config {
+        hsi: true,
+        sys: Sysclk::HSI,
+        ahb_pre: rcc::AHBPrescaler::DIV4,
+        ..Default::default()
+    };
+    let mut conf = Config::default();
+    conf.rcc = rcc_conf;
+    let p = embassy_stm32::init(conf);
 
     let mut led_1 = Output::new(led_pin_1!(p), Level::High, embassy_stm32::gpio::Speed::Low);
     let mut _led_2 = Output::new(led_pin_2!(p), Level::High, embassy_stm32::gpio::Speed::Low);
@@ -73,6 +83,14 @@ async fn main(spawner: Spawner) -> ! {
         Output::new(adapter_reset_pin_3!(p), Level::Low, Speed::High),
     ];
 
+    let hv_enable_pin = Output::new(
+        hv_en_pin!(p),
+        Level::Low,
+        embassy_stm32::gpio::Speed::VeryHigh,
+    );
+
+    let mut i2c_config = embassy_stm32::i2c::Config::default();
+    i2c_config.timeout = Duration::from_millis(50);
     let mut i2c = I2c::new(
         i2c_instance!(p),
         i2c_scl_pin!(p),
@@ -80,8 +98,7 @@ async fn main(spawner: Spawner) -> ! {
         Irqs,
         p.DMA1_CH1,
         p.DMA1_CH2,
-        Hertz(100_000),
-        Default::default(),
+        i2c_config,
     );
 
     let _serial = embassy_stm32::usart::Uart::new(
@@ -95,7 +112,7 @@ async fn main(spawner: Spawner) -> ! {
     );
 
     let mut nixie_controller: NixieController<'_, _, N_OF_DIGITS> =
-        NixieController::new(&mut i2c, hv_en_pin!(p).degrade(), reset_pins);
+        NixieController::new(&mut i2c, hv_enable_pin, reset_pins);
 
     while nixie_controller.get_max_number() == 0 {
         match nixie_controller.init_modules().await {
@@ -107,7 +124,7 @@ async fn main(spawner: Spawner) -> ! {
     }
     info!("Max number: {}", nixie_controller.get_max_number());
 
-    spawner.spawn(ir_sensor_task(p.PA8.degrade())).unwrap();
+    // spawner.spawn(ir_sensor_task(p.PA8.degrade())).unwrap();
 
     info!("Loop start");
     let delay_ms = 250;
@@ -128,7 +145,14 @@ async fn main(spawner: Spawner) -> ! {
                 nixie_controller.disable_hv();
                 Timer::after_millis(delay_ms).await;
                 seconds_ticker.next().await;
+                led_1.toggle();
             }
         }
     }
+}
+
+#[exception]
+unsafe fn HardFault(_frame: &ExceptionFrame) -> ! {
+    error!("HardFault!");
+    loop {}
 }

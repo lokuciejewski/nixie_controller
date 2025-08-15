@@ -1,9 +1,10 @@
-[target.'cfg(all(feature = "evalboard", target_arch = "arm", target_os = "none"))']
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
 runner = "probe-rs run --chip STM32U031R8Ix"
+# runner = "probe-rs run --chip STM32U031C8Tx"
 
-[target.'cfg(all(feature = "sample_1", target_arch = "arm", target_os = "none"))']
-runner = "probe-rs run --chip STM32U031C8Tx"
-
+[unstable]
+build-std = ["core"]
+build-std-features = ["panic_immediate_abort"]
 
 [build]
 target = "thumbv6m-none-eabi"

@@ -1,120 +1,147 @@
 // =============================================================== LEDS ======================================================//
+#[cfg(feature = "evalboard")]
 #[macro_export]
 macro_rules! led_pin_1 {
     ($peripherals:ident) => {
-        if cfg!(feature = "evalboard") {
-            $peripherals.PA5.degrade() // built-in, D13
-        } else if cfg!(feature = "sample_1") {
-            $peripherals.PB13.degrade()
-        } else {
-            crate::panic!("unsupported")
-        }
+        $peripherals.PA5 // built-in, D13
     };
 }
 
+#[cfg(feature = "sample_1")]
+#[macro_export]
+macro_rules! led_pin_1 {
+    ($peripherals:ident) => {
+        $peripherals.PB13
+    };
+}
+
+#[cfg(feature = "evalboard")]
 #[macro_export]
 macro_rules! led_pin_2 {
     ($peripherals:ident) => {
-        if cfg!(feature = "evalboard") {
-            $peripherals.PA6.degrade() // D12
-        } else if cfg!(feature = "sample_1") {
-            $peripherals.PB14.degrade()
-        } else {
-            crate::panic!("unsupported")
-        }
+        $peripherals.PA6 // D12
+    };
+}
+
+#[cfg(feature = "sample_1")]
+#[macro_export]
+macro_rules! led_pin_2 {
+    ($peripherals:ident) => {
+        $peripherals.PB14
     };
 }
 
 // =============================================================== BUTTONS ======================================================//
+#[cfg(feature = "evalboard")]
 #[macro_export]
 macro_rules! button_pin_1 {
     ($peripherals:ident) => {
-        if cfg!(feature = "evalboard") {
-            $peripherals.PC13.degrade() // build in, B1
-        } else if cfg!(feature = "sample_1") {
-            $peripherals.PB10.degrade()
-        } else {
-            crate::panic!("unsupported")
-        }
+        $peripherals.PC13 // build in, B1
     };
 }
 
+#[cfg(feature = "sample_1")]
+#[macro_export]
+macro_rules! button_pin_1 {
+    ($peripherals:ident) => {
+        $peripherals.PB10
+    };
+}
+
+#[cfg(feature = "evalboard")]
 #[macro_export]
 macro_rules! button_pin_2 {
     ($peripherals:ident) => {
-        if cfg!(feature = "evalboard") {
-            $peripherals.PB5.degrade()
-        } else if cfg!(feature = "sample_1") {
-            $peripherals.PB11.degrade()
-        } else {
-            crate::panic!("unsupported")
-        }
+        $peripherals.PB5 // build in, B1
     };
 }
 
+#[cfg(feature = "sample_1")]
+#[macro_export]
+macro_rules! button_pin_2 {
+    ($peripherals:ident) => {
+        $peripherals.PB11
+    };
+}
+
+#[cfg(feature = "evalboard")]
 #[macro_export]
 macro_rules! button_pin_3 {
     ($peripherals:ident) => {
-        if cfg!(feature = "evalboard") {
-            $peripherals.PB4.degrade()
-        } else if cfg!(feature = "sample_1") {
-            $peripherals.PB12.degrade()
-        } else {
-            crate::panic!("unsupported")
-        }
+        $peripherals.PB4 // build in, B1
+    };
+}
+
+#[cfg(feature = "sample_1")]
+#[macro_export]
+macro_rules! button_pin_3 {
+    ($peripherals:ident) => {
+        $peripherals.PB12
     };
 }
 
 // =============================================================== RES PINS ======================================================//
+#[cfg(feature = "evalboard")]
 #[macro_export]
 macro_rules! adapter_reset_pin_0 {
     ($peripherals:ident) => {
-        if cfg!(feature = "evalboard") {
-            $peripherals.PA3.degrade()
-        } else if cfg!(feature = "sample_1") {
-            $peripherals.PB0.degrade()
-        } else {
-            crate::panic!("unsupported")
-        }
+        $peripherals.PC2
     };
 }
 
+#[cfg(feature = "sample_1")]
+#[macro_export]
+macro_rules! adapter_reset_pin_0 {
+    ($peripherals:ident) => {
+        $peripherals.PB0
+    };
+}
+
+#[cfg(feature = "evalboard")]
 #[macro_export]
 macro_rules! adapter_reset_pin_1 {
     ($peripherals:ident) => {
-        if cfg!(feature = "evalboard") {
-            $peripherals.PA2.degrade()
-        } else if cfg!(feature = "sample_1") {
-            $peripherals.PB1.degrade()
-        } else {
-            crate::panic!("unsupported")
-        }
+        $peripherals.PC1
     };
 }
 
+#[cfg(feature = "sample_1")]
+#[macro_export]
+macro_rules! adapter_reset_pin_1 {
+    ($peripherals:ident) => {
+        $peripherals.PB1
+    };
+}
+
+#[cfg(feature = "evalboard")]
 #[macro_export]
 macro_rules! adapter_reset_pin_2 {
     ($peripherals:ident) => {
-        if cfg!(feature = "evalboard") {
-            $peripherals.PA10.degrade()
-        } else if cfg!(feature = "sample_1") {
-            $peripherals.PB2.degrade()
-        } else {
-            crate::panic!("unsupported")
-        }
+        $peripherals.PC3
     };
 }
 
+#[cfg(feature = "sample_1")]
+#[macro_export]
+macro_rules! adapter_reset_pin_2 {
+    ($peripherals:ident) => {
+        $peripherals.PB2
+    };
+}
+
+#[cfg(feature = "evalboard")]
 #[macro_export]
 macro_rules! adapter_reset_pin_3 {
     ($peripherals:ident) => {
-        if cfg!(feature = "evalboard") {
-            $peripherals.PB3.degrade()
-        } else if cfg!(feature = "sample_1") {
-            $peripherals.PB3.degrade()
-        } else {
-            crate::panic!("unsupported")
-        }
+        $peripherals.PC0
+    };
+}
+
+#[cfg(feature = "sample_1")]
+#[macro_export]
+macro_rules! adapter_reset_pin_3 {
+    ($peripherals:ident) => {
+        $peripherals.PB3
     };
 }
 
@@ -248,7 +275,3 @@ macro_rules! hv_mon_pin {
         $peripherals.PA0
     };
 }
-
-
-
-

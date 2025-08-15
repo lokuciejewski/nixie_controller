@@ -4,10 +4,8 @@
 use core::{fmt::Debug, marker::PhantomData};
 
 use defmt::{debug, error, info, Format};
-use embassy_stm32::{
-    gpio::{AnyPin, Input, Level, Output},
-};
-use embassy_time::{Timer};
+use embassy_stm32::gpio::{Input, Output};
+use embassy_time::Timer;
 use embedded_hal_async::i2c::I2c;
 use heapless::FnvIndexMap;
 
@@ -82,7 +80,7 @@ where
 {
     pub fn new(
         i2c: &'nc mut I2C,
-        hv_enable_pin: AnyPin,
+        hv_enable_pin: Output<'nc>,
         mut pin_positions: [Output<'nc>; N],
     ) -> Self {
         for pin in pin_positions.iter_mut() {
@@ -93,11 +91,7 @@ where
             nixie_modules: FnvIndexMap::new(),
             smallest_unavailable_number: 1,
             available_digits: 0,
-            hv_enable: Output::new(
-                hv_enable_pin,
-                Level::High,
-                embassy_stm32::gpio::Speed::VeryHigh,
-            ),
+            hv_enable: hv_enable_pin,
             i2c,
         }
     }
@@ -122,7 +116,7 @@ where
 
     async fn find_module_address(&mut self) -> Result<u8, NixieControllerError<I2C>> {
         let buf = &mut [0xff; 2];
-        for address in 0x0..0x7f {
+        for address in 0x20..0x60 {
             match self.i2c.read(address, buf).await {
                 Ok(_) => {
                     if buf[0] == address || buf[0] == DEFAULT_MODULE_ADDRESS {
@@ -135,7 +129,9 @@ where
                         );
                     }
                 }
-                Err(_) => {}
+                Err(_) => {
+                    debug!("Device not found on address 0x{:02x}", address);
+                }
             }
         }
         Err(NixieControllerError::ModuleNotFound)
@@ -238,7 +234,7 @@ where
                     .display(
                         self.i2c,
                         NixieModuleValues::from(
-                            (number / (10 * current_digit + ((current_digit == 0) as usize)) % 10)
+                            (number / (10 * (current_digit as usize) + ((current_digit == 0) as usize)) % 10)
                                 as u8,
                         ),
                     )
@@ -425,9 +421,9 @@ pub struct IRSensor<'i> {
 }
 
 impl<'i> IRSensor<'i> {
-    pub fn new(input_pin: AnyPin) -> Self {
+    pub fn new(input_pin: Input<'i>) -> Self {
         Self {
-            pin: Input::new(input_pin, embassy_stm32::gpio::Pull::Down),
+            pin: input_pin,
         }
     }
 
