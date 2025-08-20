@@ -58,7 +58,7 @@ pub async fn ir_sensor_task(detection_pin: Input<'static>) -> ! {
 }
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) -> ! {
+async fn main(spawner: Spawner) -> ! {
     let rcc_conf = rcc::Config {
         hsi: true,
         sys: Sysclk::HSI,
@@ -70,9 +70,9 @@ async fn main(_spawner: Spawner) -> ! {
     let p = embassy_stm32::init(conf);
 
     let mut led_1 = Output::new(led_pin_1!(p), Level::High, embassy_stm32::gpio::Speed::Low);
-    let mut _led_2 = Output::new(led_pin_2!(p), Level::High, embassy_stm32::gpio::Speed::Low);
+    let mut led_2 = Output::new(led_pin_2!(p), Level::High, embassy_stm32::gpio::Speed::Low);
 
-    let mut _button_1 = Input::new(button_pin_1!(p), Pull::Up);
+    // let mut _button_1 = Input::new(button_pin_1!(p), Pull::Up);
     let mut _button_2 = Input::new(button_pin_2!(p), Pull::Up);
     let mut _button_3 = Input::new(button_pin_3!(p), Pull::Up);
 
@@ -85,7 +85,7 @@ async fn main(_spawner: Spawner) -> ! {
 
     let hv_enable_pin = Output::new(
         hv_en_pin!(p),
-        Level::Low,
+        Level::High,
         embassy_stm32::gpio::Speed::VeryHigh,
     );
 
@@ -124,29 +124,39 @@ async fn main(_spawner: Spawner) -> ! {
     }
     info!("Max number: {}", nixie_controller.get_max_number());
 
-    // spawner.spawn(ir_sensor_task(p.PA8.degrade())).unwrap();
+    spawner
+        .spawn(ir_sensor_task(Input::new(button_pin_1!(p), Pull::Up)))
+        .unwrap();
 
     info!("Loop start");
     let delay_ms = 250;
     let mut seconds_ticker = Ticker::every(Duration::from_secs(1));
 
     loop {
-        if MOVEMENT_DETECTED.wait().await {
-            for _ in 0..SECONDS_TO_SHOW_TIME {
-                let time = Instant::now().as_secs() as usize;
-                nixie_controller.display_integer(time / 100).await.unwrap();
-                info!("Displaying: {:02}", time / 100);
-                Timer::after_millis(delay_ms).await;
-                nixie_controller.disable_hv();
-                Timer::after_millis(delay_ms / 2).await;
-                info!("Displaying: {:02}", time % 100);
-                nixie_controller.display_integer(time % 100).await.unwrap();
-                Timer::after_millis(delay_ms).await;
-                nixie_controller.disable_hv();
-                Timer::after_millis(delay_ms).await;
-                seconds_ticker.next().await;
-                led_1.toggle();
-            }
+        // if MOVEMENT_DETECTED.wait().await {
+        //     for _ in 0..SECONDS_TO_SHOW_TIME {
+        //         let time = Instant::now().as_secs() as usize;
+        //         nixie_controller.display_integer(time / 100).await.unwrap();
+        //         info!("Displaying: {:02}", time / 100);
+        //         Timer::after_millis(delay_ms).await;
+        //         nixie_controller.disable_hv();
+        //         Timer::after_millis(delay_ms / 2).await;
+        //         info!("Displaying: {:02}", time % 100);
+        //         nixie_controller.display_integer(time % 100).await.unwrap();
+        //         Timer::after_millis(delay_ms).await;
+        //         nixie_controller.disable_hv();
+        //         Timer::after_millis(delay_ms).await;
+        //         seconds_ticker.next().await;
+        //         led_1.toggle();
+        //     }
+        // }
+        for i in 0..9999 {
+            info!("Displaying: {:04}", i);
+            nixie_controller.display_integer(i).await.unwrap();
+            Timer::after_millis(100).await;
+            // nixie_controller.disable_hv();
+            led_1.toggle();
+            Timer::after_millis(100).await;
         }
     }
 }

@@ -115,8 +115,8 @@ where
     }
 
     async fn find_module_address(&mut self) -> Result<u8, NixieControllerError<I2C>> {
-        let buf = &mut [0xff; 2];
-        for address in 0x20..0x60 {
+        let buf: &mut [u8; _] = &mut [0xff; 2];
+        for address in 0x20..0x50 {
             match self.i2c.read(address, buf).await {
                 Ok(_) => {
                     if buf[0] == address || buf[0] == DEFAULT_MODULE_ADDRESS {
@@ -234,8 +234,9 @@ where
                     .display(
                         self.i2c,
                         NixieModuleValues::from(
-                            (number / (10 * (current_digit as usize) + ((current_digit == 0) as usize)) % 10)
-                                as u8,
+                            (number
+                                / (10 * (current_digit as usize) + ((current_digit == 0) as usize))
+                                % 10) as u8,
                         ),
                     )
                     .await
@@ -422,12 +423,10 @@ pub struct IRSensor<'i> {
 
 impl<'i> IRSensor<'i> {
     pub fn new(input_pin: Input<'i>) -> Self {
-        Self {
-            pin: input_pin,
-        }
+        Self { pin: input_pin }
     }
 
     pub fn movement_detected(&mut self) -> bool {
-        self.pin.is_high()
+        self.pin.is_low()
     }
 }

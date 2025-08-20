@@ -37,7 +37,7 @@ embedded-hal = { version = "1.0.0", features = ["defmt-03"] }
 embassy-sync = { version = "0.6.2", features = ["defmt"] }
 
 [features]
-default = ["evalboard"]
+default = ["sample_1"]
 evalboard = ["embassy-stm32/stm32u031r8"]
 sample_1 = ["embassy-stm32/stm32u031c8"]
 
