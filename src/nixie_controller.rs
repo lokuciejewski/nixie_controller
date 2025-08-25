@@ -1,10 +1,7 @@
-#![no_std]
-#![no_main]
-
 use core::{fmt::Debug, marker::PhantomData};
 
 use defmt::{debug, error, info, Format};
-use embassy_stm32::gpio::{Input, Output};
+use embassy_stm32::gpio::Output;
 use embassy_time::Timer;
 use embedded_hal_async::i2c::I2c;
 use heapless::FnvIndexMap;
@@ -13,6 +10,8 @@ use heapless::FnvIndexMap;
 const DEFAULT_MODULE_ADDRESS: u8 = 0x20;
 // Address to start assigning new modules to
 const FIRST_MODULE_ADDRESS: u8 = 0x40;
+// Highest possible module address
+const LAST_MODULE_ADDRESS: u8 = 0x46;
 
 pub enum NixieControllerError<I2C>
 where
@@ -116,10 +115,32 @@ where
 
     async fn find_module_address(&mut self) -> Result<u8, NixieControllerError<I2C>> {
         let buf: &mut [u8; _] = &mut [0xff; 2];
-        for address in 0x20..0x50 {
+        match self.i2c.read(DEFAULT_MODULE_ADDRESS, buf).await {
+            Ok(_) => {
+                if buf[0] == DEFAULT_MODULE_ADDRESS {
+                    debug!(
+                        "Device on default address 0x{:02x} validated",
+                        DEFAULT_MODULE_ADDRESS
+                    );
+                    return Ok(DEFAULT_MODULE_ADDRESS);
+                } else {
+                    debug!(
+                            "Device found on default address 0x{:02x} but the register has wrong value: 0x{:02x}",
+                            DEFAULT_MODULE_ADDRESS, buf[0]
+                        );
+                }
+            }
+            Err(_) => {
+                debug!(
+                    "Device not found on default address 0x{:02x}",
+                    DEFAULT_MODULE_ADDRESS
+                );
+            }
+        }
+        for address in FIRST_MODULE_ADDRESS..LAST_MODULE_ADDRESS {
             match self.i2c.read(address, buf).await {
                 Ok(_) => {
-                    if buf[0] == address || buf[0] == DEFAULT_MODULE_ADDRESS {
+                    if buf[0] == address {
                         debug!("Device on address 0x{:02x} validated", address);
                         return Ok(address);
                     } else {
@@ -234,9 +255,7 @@ where
                     .display(
                         self.i2c,
                         NixieModuleValues::from(
-                            (number
-                                / (10 * (current_digit as usize) + ((current_digit == 0) as usize))
-                                % 10) as u8,
+                            (number / (10usize.pow(current_digit as u32)) % 10) as u8,
                         ),
                     )
                     .await
@@ -250,6 +269,14 @@ where
             }
         }
         self.enable_hv();
+        Ok(())
+    }
+
+    pub async fn set_comma(&mut self, position: u8, comma_on: bool) -> Result<(), I2C::Error> {
+        match self.nixie_modules.get_mut(&(position as u8)) {
+            Some(module) => module.set_comma(self.i2c, comma_on).await?,
+            None => {}
+        }
         Ok(())
     }
 
@@ -409,24 +436,54 @@ where
         Ok(())
     }
 
+    pub async fn set_comma(&mut self, i2c: &mut I2C, comma_on: bool) -> Result<(), I2C::Error> {
+        match self.displayed_number {
+            NixieModuleValues::Zero
+            | NixieModuleValues::One
+            | NixieModuleValues::Two
+            | NixieModuleValues::Three
+            | NixieModuleValues::Four
+            | NixieModuleValues::Five
+            | NixieModuleValues::Six
+            | NixieModuleValues::Seven
+            | NixieModuleValues::Eight
+            | NixieModuleValues::Nine
+            | NixieModuleValues::Off => {
+                if comma_on {
+                    i2c.write(
+                        self.address,
+                        &[
+                            NixieModuleRegisters::Value as u8,
+                            0x80u8 | self.displayed_number.clone() as u8,
+                        ],
+                    )
+                    .await?;
+                    self.displayed_number =
+                        NixieModuleValues::from(0x80u8 | self.displayed_number.clone() as u8);
+                }
+            }
+            _ => {
+                if !comma_on {
+                    i2c.write(
+                        self.address,
+                        &[
+                            NixieModuleRegisters::Value as u8,
+                            0x7Fu8 & self.displayed_number.clone() as u8,
+                        ],
+                    )
+                    .await?;
+                    self.displayed_number =
+                        NixieModuleValues::from(0x7Fu8 & self.displayed_number.clone() as u8);
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub async fn get_hv_reading(&mut self, i2c: &mut I2C) -> Result<u16, I2C::Error> {
         let mut buf = [NixieModuleRegisters::HighVoltage as u8, 0, 0];
         i2c.read(self.address, &mut buf).await?;
         let hv_value = ((buf[2] as u16) << 8) | buf[1] as u16;
         Ok(hv_value)
-    }
-}
-
-pub struct IRSensor<'i> {
-    pin: Input<'i>,
-}
-
-impl<'i> IRSensor<'i> {
-    pub fn new(input_pin: Input<'i>) -> Self {
-        Self { pin: input_pin }
-    }
-
-    pub fn movement_detected(&mut self) -> bool {
-        self.pin.is_low()
     }
 }

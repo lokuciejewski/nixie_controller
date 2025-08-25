@@ -34,7 +34,8 @@ panic-probe = { version = "0.3.2", features = ["print-defmt"] }
 embedded-hal-bus = { version = "0.3.0", features = ["async", "defmt-03"] }
 embedded-hal-async = { version = "1.0.0", features = ["defmt-03"] }
 embedded-hal = { version = "1.0.0", features = ["defmt-03"] }
-embassy-sync = { version = "0.6.2", features = ["defmt"] }
+embassy-sync = { version = "0.7.1", features = ["defmt"] }
+embedded-resources = { version = "0.2.1", features = ["stm32"] }
 
 [features]
 default = ["sample_1"]
