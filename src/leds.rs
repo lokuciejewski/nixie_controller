@@ -56,6 +56,7 @@ pub async fn led_task(led_resources: LedResources) -> ! {
             }
             SystemState::Normal => {
                 led_green.toggle();
+                led_red.set_low();
                 ticker_long.next().await;
             }
             SystemState::Error => {
