@@ -1,5 +1,4 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-# runner = "probe-rs run --chip STM32U031R8Ix"
 runner = "probe-rs run --chip STM32U031C8Tx"
 
 [unstable]

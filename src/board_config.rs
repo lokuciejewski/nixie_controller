@@ -46,3 +46,8 @@ pub(crate) struct HVResources {
     hv_en: PA1,
     hv_mon: PA0,
 }
+
+#[resource_group]
+pub(crate) struct RTCResources {
+    int: PB15
+}

@@ -1,10 +1,19 @@
 use core::{fmt::Debug, marker::PhantomData};
 
 use defmt::{debug, error, info, Format};
-use embassy_stm32::gpio::Output;
+use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
+use embassy_stm32::gpio::{Level, Output, Speed};
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::Timer;
 use embedded_hal_async::i2c::I2c;
 use heapless::FnvIndexMap;
+
+use crate::{
+    board_config::{HVResources, ModuleResources},
+    I2cBus,
+};
+
+type DisplaySignal = Signal<CriticalSectionRawMutex, (u16, bool)>;
 
 // Address which newly programmed modules have
 const DEFAULT_MODULE_ADDRESS: u8 = 0x20;
@@ -12,13 +21,57 @@ const DEFAULT_MODULE_ADDRESS: u8 = 0x20;
 const FIRST_MODULE_ADDRESS: u8 = 0x40;
 // Highest possible module address
 const LAST_MODULE_ADDRESS: u8 = 0x46;
+// Number of digits
+const N_OF_DIGITS: usize = 4;
+
+#[embassy_executor::task]
+pub async fn nixie_controller_task(
+    module_resources: ModuleResources,
+    hv_resources: HVResources,
+    i2c_bus: &'static I2cBus,
+    display_signal: &'static DisplaySignal
+) -> ! {
+    let reset_pins = [
+        Output::new(module_resources.reset_0, Level::Low, Speed::High),
+        Output::new(module_resources.reset_1, Level::Low, Speed::High),
+        Output::new(module_resources.reset_2, Level::Low, Speed::High),
+        Output::new(module_resources.reset_3, Level::Low, Speed::High),
+    ];
+    let hv_enable_pin = Output::new(
+        hv_resources.hv_en,
+        Level::High,
+        embassy_stm32::gpio::Speed::VeryHigh,
+    );
+    let i2c_dev = I2cDevice::new(i2c_bus);
+    let mut nixie_controller: NixieController<'_, _, N_OF_DIGITS> =
+        NixieController::new(i2c_dev, hv_enable_pin, reset_pins);
+
+    while nixie_controller.get_max_number() == 0 {
+        match nixie_controller.init_modules().await {
+            Ok(_) => (),
+            Err(e) => error!("{}", e),
+        }
+        Timer::after_millis(500).await;
+    }
+    info!("Max number: {}", nixie_controller.get_max_number());
+    loop {
+        let (num, comma) = display_signal.wait().await;
+        match nixie_controller.display_integer(num as usize).await {
+            Ok(_) => {},
+            Err(e) => error!("Cannot display integer {} : {:?}", num, e),
+        }
+        match nixie_controller.set_comma(1, comma).await {
+            Ok(_) => {},
+            Err(_) => error!("Cannot set comma on {} to {}", 1, comma),
+        }
+    }
+}
 
 pub enum NixieControllerError<I2C>
 where
     I2C: I2c,
 {
     CommunicationError(I2C::Error),
-    InvalidAddress,
     InvalidPosition,
     ModuleNotFound,
     TooManyDigits,
@@ -34,7 +87,6 @@ where
             Self::CommunicationError(arg0) => {
                 f.debug_tuple("CommunicationError").field(arg0).finish()
             }
-            Self::InvalidAddress => write!(f, "InvalidAddress"),
             Self::InvalidPosition => write!(f, "InvalidPosition"),
             Self::TooManyDigits => write!(f, "TooManyDigits"),
             Self::InternalError => write!(f, "InternalError"),
@@ -52,7 +104,6 @@ where
             Self::CommunicationError(_) => {
                 defmt::write!(fmt, "CommunicationError")
             }
-            Self::InvalidAddress => defmt::write!(fmt, "InvalidAddress"),
             Self::InvalidPosition => defmt::write!(fmt, "InvalidPosition"),
             Self::TooManyDigits => defmt::write!(fmt, "TooManyDigits"),
             Self::InternalError => defmt::write!(fmt, "InternalError"),
@@ -70,18 +121,14 @@ where
     smallest_unavailable_number: usize,
     available_digits: usize,
     hv_enable: Output<'nc>,
-    i2c: &'nc mut I2C,
+    i2c: I2C,
 }
 
 impl<'nc, I2C, const N: usize> NixieController<'nc, I2C, N>
 where
     I2C: I2c,
 {
-    pub fn new(
-        i2c: &'nc mut I2C,
-        hv_enable_pin: Output<'nc>,
-        mut pin_positions: [Output<'nc>; N],
-    ) -> Self {
+    pub fn new(i2c: I2C, hv_enable_pin: Output<'nc>, mut pin_positions: [Output<'nc>; N]) -> Self {
         for pin in pin_positions.iter_mut() {
             pin.set_low(); // Disable all modules when creating the controller
         }
@@ -203,8 +250,9 @@ where
             _ => NixieModule::with_address(address),
         };
         if module.address == DEFAULT_MODULE_ADDRESS || !self.is_address_free(module.address) {
+            let next_free_address = self.get_next_free_address();
             module
-                .change_address(self.i2c, self.get_next_free_address())
+                .change_address(&mut self.i2c, next_free_address)
                 .await
                 .map_err(|e| NixieControllerError::CommunicationError(e))?;
             Timer::after_millis(100).await;
@@ -233,13 +281,6 @@ where
         Ok(())
     }
 
-    pub fn unregister_module(
-        &mut self,
-        _module_position: u8,
-    ) -> Result<(), NixieControllerError<I2C>> {
-        todo!()
-    }
-
     pub async fn display_integer(
         &mut self,
         number: usize,
@@ -253,7 +294,7 @@ where
             match self.nixie_modules.get_mut(&(position as u8)) {
                 Some(module) => match module
                     .display(
-                        self.i2c,
+                        &mut self.i2c,
                         NixieModuleValues::from(
                             (number / (10usize.pow(current_digit as u32)) % 10) as u8,
                         ),
@@ -274,7 +315,7 @@ where
 
     pub async fn set_comma(&mut self, position: u8, comma_on: bool) -> Result<(), I2C::Error> {
         match self.nixie_modules.get_mut(&(position as u8)) {
-            Some(module) => module.set_comma(self.i2c, comma_on).await?,
+            Some(module) => module.set_comma(&mut self.i2c, comma_on).await?,
             None => {}
         }
         Ok(())
@@ -304,7 +345,7 @@ where
             return Err(NixieControllerError::InvalidPosition);
         };
         module
-            .get_hv_reading(self.i2c)
+            .get_hv_reading(&mut self.i2c)
             .await
             .map_err(|e| NixieControllerError::CommunicationError(e))
     }

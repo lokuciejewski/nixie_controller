@@ -1,3 +1,4 @@
+use defmt::{info, write, Format};
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::{Duration, Ticker};
@@ -11,9 +12,21 @@ pub enum SystemState {
     Error,
 }
 
+impl Format for SystemState {
+    fn format(&self, fmt: defmt::Formatter) {
+        match self {
+            SystemState::None => write!(fmt, "None"),
+            SystemState::Init => write!(fmt, "Init"),
+            SystemState::Normal => write!(fmt, "Normal"),
+            SystemState::Error => write!(fmt, "Error"),
+        }
+    }
+}
+
 static CURRENT_STATE: Signal<CriticalSectionRawMutex, SystemState> = Signal::new();
 
 pub fn set_system_state(state: SystemState) {
+    info!("System state now set to {:?}", state);
     CURRENT_STATE.signal(state);
 }
 
