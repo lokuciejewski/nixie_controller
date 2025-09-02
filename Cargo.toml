@@ -21,6 +21,7 @@ embassy-stm32 = { version = "0.3.0", features = [
     "defmt",
     "memory-x",
     "time-driver-any",
+    "exti"
 ] }
 cortex-m = { version = "0.7.7", features = [
     "inline-asm",

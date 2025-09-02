@@ -7,12 +7,14 @@ mod ir_sensor;
 mod leds;
 mod nixie_controller;
 mod rtc;
+mod serial;
 
 use chrono::{NaiveDateTime, Timelike};
 use embassy_stm32::peripherals::USART1;
 use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
 use embassy_sync::mutex::Mutex;
 use embassy_sync::signal::Signal;
+use embassy_sync::watch::Watch;
 use static_cell::StaticCell;
 
 use crate::board_config::*;
@@ -21,6 +23,7 @@ use crate::ir_sensor::ir_sensor_task;
 use crate::leds::{led_task, set_system_state, SystemState};
 use crate::nixie_controller::nixie_controller_task;
 use crate::rtc::rtc_task;
+use crate::serial::serial::serial_task;
 use cortex_m_rt::{exception, ExceptionFrame};
 use defmt::*;
 use defmt_rtt as _;
@@ -37,7 +40,11 @@ bind_interrupts!(struct Irqs {
     USART1 => embassy_stm32::usart::InterruptHandler<USART1>;
 });
 
-static TIME_CHANGED: Signal<CriticalSectionRawMutex, NaiveDateTime> = Signal::new();
+type TimeWatch = Watch<CriticalSectionRawMutex, NaiveDateTime, 3>;
+type TimeSignal = Signal<CriticalSectionRawMutex, NaiveDateTime>;
+
+static TIME_WATCH: TimeWatch = Watch::new();
+static TIME_SIGNAL_SER_RTC: TimeSignal = Signal::new();
 static DISPLAY_SIGNAL: Signal<CriticalSectionRawMutex, (u16, bool)> = Signal::new();
 
 static MOVEMENT_DETECTED: Signal<CriticalSectionRawMutex, bool> = Signal::new();
@@ -79,19 +86,20 @@ async fn main(spawner: Spawner) -> ! {
     static I2C_BUS: StaticCell<I2cBus> = StaticCell::new();
     let i2c_bus = I2C_BUS.init(Mutex::new(i2c));
 
-    let u = uart_resources!(p);
-    let _serial = embassy_stm32::usart::Uart::new(
-        u.uart_instance,
-        u.rx,
-        u.tx,
-        Irqs,
-        p.DMA1_CH3,
-        p.DMA1_CH4,
-        Default::default(),
-    );
-
     spawner
-        .spawn(rtc_task(rtc_resources!(p), i2c_bus, &TIME_CHANGED))
+        .spawn(serial_task(
+            uart_resources!(p),
+            &TIME_WATCH,
+            &TIME_SIGNAL_SER_RTC,
+        ))
+        .unwrap();
+    spawner
+        .spawn(rtc_task(
+            rtc_resources!(p),
+            i2c_bus,
+            &TIME_WATCH,
+            &TIME_SIGNAL_SER_RTC,
+        ))
         .unwrap();
     spawner
         .spawn(nixie_controller_task(
@@ -105,8 +113,9 @@ async fn main(spawner: Spawner) -> ! {
     info!("Loop start");
 
     set_system_state(SystemState::Normal);
+    let mut time_changed = TIME_WATCH.receiver().unwrap();
     loop {
-        let t = TIME_CHANGED.wait().await;
+        let t = time_changed.changed().await;
         let int = (t.hour() as u16) * 100 + (t.minute() as u16);
         DISPLAY_SIGNAL.signal((int, t.second() % 2 == 0));
     }

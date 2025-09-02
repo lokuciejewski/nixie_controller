@@ -39,6 +39,8 @@ pub(crate) struct UARTResources {
     uart_instance: USART1,
     tx: PA9,
     rx: PA10,
+    tx_dma: DMA1_CH3,
+    rx_dma: DMA1_CH4,
 }
 
 #[resource_group]
@@ -49,5 +51,6 @@ pub(crate) struct HVResources {
 
 #[resource_group]
 pub(crate) struct RTCResources {
-    int: PB15
+    sqw_int: PB15,
+    int_channel: EXTI15
 }
