@@ -1,3 +1,3 @@
-pub mod serial;
-mod protocol;
 mod commands;
+pub mod protocol;
+pub(crate) mod serial;

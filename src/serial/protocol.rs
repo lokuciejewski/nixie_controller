@@ -2,24 +2,36 @@ use defmt::{write, Format};
 const MAGIC_NUMBER: u8 = 0x69;
 const PAYLOAD_SIZE: usize = 12;
 
-#[derive(Debug)]
 pub enum MessageError {
     InvalidHeader,
     InvalidCommand,
-    InvalidLength,
 }
 
 impl Format for MessageError {
     fn format(&self, fmt: defmt::Formatter) {
-        write!(fmt, "{:?}", self)
+        match self {
+            MessageError::InvalidHeader => write!(fmt, "InvalidHeader"),
+            MessageError::InvalidCommand => write!(fmt, "InvalidCommand"),
+        }
     }
 }
 
+#[derive(Clone, Copy)]
 #[repr(u8)]
-pub enum DeviceMode {
-    Normal,
+pub enum ProgramMode {
+    Clock,
     ExternalControl,
     FirmwareUpdate,
+}
+
+impl Format for ProgramMode {
+    fn format(&self, fmt: defmt::Formatter) {
+        match self {
+            ProgramMode::Clock => write!(fmt, "ProgramMode::Clock"),
+            ProgramMode::ExternalControl => write!(fmt, "ProgramMode::ExtCtrl"),
+            ProgramMode::FirmwareUpdate => write!(fmt, "ProgramMode::FwUpdate"),
+        }
+    }
 }
 
 #[repr(u8)]

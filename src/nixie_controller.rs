@@ -29,7 +29,7 @@ pub async fn nixie_controller_task(
     module_resources: ModuleResources,
     hv_resources: HVResources,
     i2c_bus: &'static I2cBus,
-    display_signal: &'static DisplaySignal
+    display_signal: &'static DisplaySignal,
 ) -> ! {
     let reset_pins = [
         Output::new(module_resources.reset_0, Level::Low, Speed::High),
@@ -57,11 +57,11 @@ pub async fn nixie_controller_task(
     loop {
         let (num, comma) = display_signal.wait().await;
         match nixie_controller.display_integer(num as usize).await {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(e) => error!("Cannot display integer {} : {:?}", num, e),
         }
         match nixie_controller.set_comma(1, comma).await {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(_) => error!("Cannot set comma on {} to {}", 1, comma),
         }
     }
@@ -333,10 +333,7 @@ where
         self.smallest_unavailable_number - 1
     }
 
-    pub fn get_digit_number(&self) -> usize {
-        self.available_digits
-    }
-
+    #[allow(unused)]
     pub async fn get_reported_hv(
         &mut self,
         position_on_display: u8,
@@ -351,6 +348,7 @@ where
     }
 }
 
+#[allow(unused)]
 #[repr(u8)]
 pub enum NixieModuleRegisters {
     Address = 0x0,

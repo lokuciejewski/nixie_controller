@@ -20,17 +20,20 @@ use static_cell::StaticCell;
 use crate::board_config::*;
 use crate::buttons::button_task;
 use crate::ir_sensor::ir_sensor_task;
-use crate::leds::{led_task, set_system_state, SystemState};
+use crate::leds::{led_task, SystemState};
 use crate::nixie_controller::nixie_controller_task;
 use crate::rtc::rtc_task;
+use crate::serial::protocol::ProgramMode;
 use crate::serial::serial::serial_task;
 use cortex_m_rt::{exception, ExceptionFrame};
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::{bind_interrupts, i2c::I2c, peripherals::I2C1};
-use embassy_time::Duration;
+use embassy_time::{Duration, Ticker};
 use panic_probe as _;
+
+use defmt::panic;
 
 type I2cBus =
     Mutex<NoopRawMutex, I2c<'static, embassy_stm32::mode::Async, embassy_stm32::i2c::Master>>;
@@ -42,16 +45,25 @@ bind_interrupts!(struct Irqs {
 
 type TimeWatch = Watch<CriticalSectionRawMutex, NaiveDateTime, 3>;
 type TimeSignal = Signal<CriticalSectionRawMutex, NaiveDateTime>;
+type StateWatch = Watch<CriticalSectionRawMutex, SystemState, 3>;
 
 static TIME_WATCH: TimeWatch = Watch::new();
 static TIME_SIGNAL_SER_RTC: TimeSignal = Signal::new();
 static DISPLAY_SIGNAL: Signal<CriticalSectionRawMutex, (u16, bool)> = Signal::new();
+
+static CURRENT_STATE: StateWatch = Watch::new();
 
 static MOVEMENT_DETECTED: Signal<CriticalSectionRawMutex, bool> = Signal::new();
 
 static BUTTON_1_PRESSED: Signal<CriticalSectionRawMutex, bool> = Signal::new();
 static BUTTON_2_PRESSED: Signal<CriticalSectionRawMutex, bool> = Signal::new();
 static BUTTON_3_PRESSED: Signal<CriticalSectionRawMutex, bool> = Signal::new();
+
+pub fn set_system_state(state: SystemState) {
+    let sender = CURRENT_STATE.sender();
+    sender.send(state);
+    info!("System state now set to {:?}", state);
+}
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
@@ -67,7 +79,9 @@ async fn main(spawner: Spawner) -> ! {
             &BUTTON_3_PRESSED,
         ))
         .unwrap();
-    spawner.spawn(led_task(led_resources!(p))).unwrap();
+    spawner
+        .spawn(led_task(led_resources!(p), &CURRENT_STATE))
+        .unwrap();
 
     set_system_state(leds::SystemState::Init);
 
@@ -110,14 +124,36 @@ async fn main(spawner: Spawner) -> ! {
         ))
         .unwrap();
 
-    info!("Loop start");
+    info!("Main program start");
+    set_system_state(SystemState::Normal(ProgramMode::Clock));
 
-    set_system_state(SystemState::Normal);
     let mut time_changed = TIME_WATCH.receiver().unwrap();
+    let mut state_recv = CURRENT_STATE.receiver().unwrap();
+
+    let mut current_state = state_recv.get().await;
+    let mut loop_ticker = Ticker::every(Duration::from_millis(500));
+
     loop {
-        let t = time_changed.changed().await;
-        let int = (t.hour() as u16) * 100 + (t.minute() as u16);
-        DISPLAY_SIGNAL.signal((int, t.second() % 2 == 0));
+        if let Some(new_state) = state_recv.try_changed() {
+            current_state = new_state;
+        }
+
+        match current_state {
+            SystemState::None => panic!("SystemState is set to None"),
+            SystemState::Init => panic!("SystemState is set to Init"),
+            SystemState::Normal(program_mode) => match program_mode {
+                ProgramMode::Clock => {
+                    let t = time_changed.changed().await;
+                    let int = (t.hour() as u16) * 100 + (t.minute() as u16);
+                    DISPLAY_SIGNAL.signal((int, t.second() % 2 == 0));
+                }
+                ProgramMode::ExternalControl => {}
+                ProgramMode::FirmwareUpdate => {}
+            },
+            SystemState::Error => {}
+        }
+
+        loop_ticker.next().await;
     }
 }
 
@@ -125,5 +161,5 @@ async fn main(spawner: Spawner) -> ! {
 unsafe fn HardFault(_frame: &ExceptionFrame) -> ! {
     error!("HardFault!");
     set_system_state(SystemState::Error);
-    crate::todo!("Add red led blinking");
+    loop {}
 }
