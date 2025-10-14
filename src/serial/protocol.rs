@@ -24,11 +24,7 @@ pub enum DeviceMode {
 #[repr(u8)]
 #[derive(Clone, Copy)]
 pub enum Command {
-    SetTime,     // + NaiveTime
-    SetDate,     // + NaiveDate
     SetDateTime, // + NaiveDateTime
-    GetTime,
-    GetDate,
     GetDateTime,
     SetMode, // + DeviceMode
     GetMode,
@@ -49,17 +45,41 @@ impl TryFrom<u8> for Command {
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(Command::SetTime),
-            1 => Ok(Command::SetDate),
-            2 => Ok(Command::SetDateTime),
-            3 => Ok(Command::GetTime),
-            4 => Ok(Command::GetDate),
-            5 => Ok(Command::GetDateTime),
-            6 => Ok(Command::SetMode),
-            7 => Ok(Command::GetMode),
-            8 => Ok(Command::DisplayInteger),
-            9 => Ok(Command::SetComma),
-            10 => Ok(Command::GetComma),
+            0 => Ok(Command::SetDateTime),
+            1 => Ok(Command::GetDateTime),
+            2 => Ok(Command::SetMode),
+            3 => Ok(Command::GetMode),
+            4 => Ok(Command::DisplayInteger),
+            5 => Ok(Command::SetComma),
+            6 => Ok(Command::GetComma),
+            _ => Err(MessageError::InvalidCommand),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(u8)]
+pub enum MessageType {
+    Command,
+    Ack,
+    Nack,
+}
+
+impl Format for MessageType {
+    fn format(&self, fmt: defmt::Formatter) {
+        let num = *self as u8;
+        write!(fmt, "{}", num)
+    }
+}
+
+impl TryFrom<u8> for MessageType {
+    type Error = MessageError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(MessageType::Command),
+            1 => Ok(MessageType::Ack),
+            2 => Ok(MessageType::Nack),
             _ => Err(MessageError::InvalidCommand),
         }
     }
@@ -70,15 +90,15 @@ impl TryFrom<u8> for Command {
 pub struct Header {
     pub magic_number: u8,
     pub id: u8,
-    _reserved: u8,
+    pub message_type: MessageType,
 }
 
 impl Header {
-    pub fn new(id: u8) -> Self {
+    pub fn new(id: u8, message_type: MessageType) -> Self {
         Self {
             magic_number: MAGIC_NUMBER,
             id: id,
-            _reserved: 0,
+            message_type,
         }
     }
 }
@@ -108,7 +128,7 @@ impl Message {
             let header = Header {
                 magic_number: bytes[0],
                 id: bytes[1],
-                _reserved: bytes[2],
+                message_type: MessageType::try_from(bytes[2])?,
             };
 
             let command = Command::try_from(bytes[3])?;
@@ -126,7 +146,7 @@ impl Message {
         [
             self.header.magic_number,
             self.header.id,
-            self.header._reserved,
+            self.header.magic_number as u8,
             self.command as u8,
             self.payload[0],
             self.payload[1],

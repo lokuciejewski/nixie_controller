@@ -6,7 +6,7 @@ use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
 use embassy_time::Timer;
 use embedded_hal_async::i2c::I2c;
-use heapless::FnvIndexMap;
+use heapless::index_map::FnvIndexMap;
 
 use crate::{
     board_config::{HVResources, ModuleResources},

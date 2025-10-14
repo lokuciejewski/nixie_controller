@@ -4,7 +4,7 @@ use embassy_time::{Duration, Ticker};
 
 use crate::{
     board_config::UARTResources,
-    serial::protocol::{Command, Header, Message},
+    serial::protocol::{Command, Header, Message, MessageType},
     Irqs, TimeSignal, TimeWatch,
 };
 
@@ -40,8 +40,6 @@ pub async fn serial_task(
                 Ok(message) => {
                     info!("{}", message);
                     match message.command {
-                        crate::serial::protocol::Command::SetTime => todo!(),
-                        crate::serial::protocol::Command::SetDate => todo!(),
                         crate::serial::protocol::Command::SetDateTime => {
                             let new_date_opt = NaiveDate::from_ymd_opt(
                                 (((message.payload[1] as u16) << 8) | (message.payload[0] as u16))
@@ -65,15 +63,13 @@ pub async fn serial_task(
                                 error!("Invalid date");
                             }
                         }
-                        crate::serial::protocol::Command::GetTime => todo!(),
-                        crate::serial::protocol::Command::GetDate => todo!(),
                         crate::serial::protocol::Command::GetDateTime => {
                             if let Some(new_time) = time_changed.try_changed() {
                                 debug!("Time updated in serial thread");
                                 current_dt = new_time;
                             }
                             let response = Message {
-                                header: Header::new(0),
+                                header: Header::new(0, MessageType::Ack),
                                 command: Command::GetDateTime,
                                 payload: [
                                     current_dt.year() as u8,
