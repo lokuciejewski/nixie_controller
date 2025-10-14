@@ -4,7 +4,7 @@ import datetime
 
 
 def get_datetime(ser: serial.Serial) -> int:
-    command = [0x69, 0x1, 0x0, 0x5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    command = [0x69, 0x1, 0x0, 0x1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
     ser.write(command)
     resp = ser.read(16)
     resp = [int(byte) for byte in resp]

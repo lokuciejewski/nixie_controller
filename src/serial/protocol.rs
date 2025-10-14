@@ -1,5 +1,6 @@
 use defmt::{write, Format};
 const MAGIC_NUMBER: u8 = 0x69;
+const PAYLOAD_SIZE: usize = 12;
 
 #[derive(Debug)]
 pub enum MessageError {
@@ -107,14 +108,14 @@ impl Header {
 pub struct Message {
     pub header: Header,
     pub command: Command,
-    pub payload: [u8; 12],
+    pub payload: [u8; PAYLOAD_SIZE],
 }
 
 impl Format for Message {
     fn format(&self, fmt: defmt::Formatter) {
         write!(
             fmt,
-            "[{}] {}: {}",
+            "[{}] Command({}): {}",
             self.header.id, self.command, self.payload
         )
     }
@@ -132,7 +133,7 @@ impl Message {
             };
 
             let command = Command::try_from(bytes[3])?;
-            let mut payload = [0u8; 12];
+            let mut payload = [0u8; PAYLOAD_SIZE];
             payload.copy_from_slice(bytes[4..].iter().as_slice());
             Ok(Message {
                 header,
@@ -146,7 +147,7 @@ impl Message {
         [
             self.header.magic_number,
             self.header.id,
-            self.header.magic_number as u8,
+            self.header.message_type as u8,
             self.command as u8,
             self.payload[0],
             self.payload[1],
@@ -161,5 +162,29 @@ impl Message {
             self.payload[10],
             self.payload[11],
         ]
+    }
+
+    pub fn ack(id: u8, command: Command) -> Self {
+        Message {
+            header: Header::new(id, MessageType::Ack),
+            command: command,
+            payload: [0u8; PAYLOAD_SIZE],
+        }
+    }
+
+    pub fn ack_with_payload(id: u8, command: Command, payload: &[u8; PAYLOAD_SIZE]) -> Message {
+        Message {
+            header: Header::new(id, MessageType::Ack),
+            command: command,
+            payload: payload.clone(),
+        }
+    }
+
+    pub fn nack(id: u8, command: Command) -> Self {
+        Message {
+            header: Header::new(id, MessageType::Nack),
+            command: command,
+            payload: [0u8; PAYLOAD_SIZE],
+        }
     }
 }

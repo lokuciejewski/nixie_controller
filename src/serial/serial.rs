@@ -1,10 +1,13 @@
-use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
-use defmt::{debug, error, info};
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+use defmt::{debug, error};
 use embassy_time::{Duration, Ticker};
 
 use crate::{
     board_config::UARTResources,
-    serial::protocol::{Command, Header, Message, MessageType},
+    serial::{
+        commands::{get_datetime::get_datetime, set_datetime::set_datetime},
+        protocol::Message,
+    },
     Irqs, TimeSignal, TimeWatch,
 };
 
@@ -28,7 +31,12 @@ pub async fn serial_task(
 
     let mut serial_buffer = [0u8; size_of::<Message>()];
 
-    let mut time_changed = current_time.receiver().unwrap();
+    let mut time_changed: embassy_sync::watch::Receiver<
+        '_,
+        embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex,
+        NaiveDateTime,
+        3,
+    > = current_time.receiver().unwrap();
     let mut current_dt = NaiveDateTime::new(
         NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
         NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
@@ -38,66 +46,23 @@ pub async fn serial_task(
         match serial.read(&mut serial_buffer).await {
             Ok(_) => match Message::from_bytes(serial_buffer) {
                 Ok(message) => {
-                    info!("{}", message);
-                    match message.command {
+                    debug!("Message received: {}", message);
+                    let response = match message.command {
                         crate::serial::protocol::Command::SetDateTime => {
-                            let new_date_opt = NaiveDate::from_ymd_opt(
-                                (((message.payload[1] as u16) << 8) | (message.payload[0] as u16))
-                                    .into(),
-                                message.payload[2] as u32,
-                                message.payload[3] as u32,
-                            );
-                            let new_time_opt = NaiveTime::from_hms_opt(
-                                message.payload[4].into(),
-                                message.payload[5].into(),
-                                message.payload[6].into(),
-                            );
-                            if let Some(new_date) = new_date_opt {
-                                if let Some(new_time) = new_time_opt {
-                                    let new_dt = NaiveDateTime::new(new_date, new_time);
-                                    set_time.signal(new_dt);
-                                } else {
-                                    error!("Invalid time");
-                                }
-                            } else {
-                                error!("Invalid date");
-                            }
+                            set_datetime(message, set_time)
                         }
                         crate::serial::protocol::Command::GetDateTime => {
-                            if let Some(new_time) = time_changed.try_changed() {
-                                debug!("Time updated in serial thread");
-                                current_dt = new_time;
-                            }
-                            let response = Message {
-                                header: Header::new(0, MessageType::Ack),
-                                command: Command::GetDateTime,
-                                payload: [
-                                    current_dt.year() as u8,
-                                    (current_dt.year() >> 8) as u8,
-                                    current_dt.month() as u8,
-                                    current_dt.day() as u8,
-                                    current_dt.hour() as u8,
-                                    current_dt.minute() as u8,
-                                    current_dt.second() as u8,
-                                    0,
-                                    0,
-                                    0,
-                                    0,
-                                    0,
-                                ],
-                            };
-                            match serial.write(&response.to_bytes()).await {
-                                Ok(_) => {}
-                                Err(e) => {
-                                    error!("Could not send datetime: {}", e);
-                                }
-                            }
+                            get_datetime(&mut time_changed, &mut current_dt)
                         }
                         crate::serial::protocol::Command::SetMode => todo!(),
                         crate::serial::protocol::Command::GetMode => todo!(),
                         crate::serial::protocol::Command::DisplayInteger => todo!(),
                         crate::serial::protocol::Command::SetComma => todo!(),
                         crate::serial::protocol::Command::GetComma => todo!(),
+                    };
+                    match serial.write(&response.to_bytes()).await {
+                        Ok(_) => debug!("Response sent"),
+                        Err(e) => error!("Failed to send response: {}", e),
                     }
                 }
                 Err(e) => {
