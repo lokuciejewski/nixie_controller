@@ -24,7 +24,7 @@ def set_datetime(ser: serial.Serial, datetime_struct):
         0x69,
         0x1,
         0x0,
-        0x2,
+        0x0,
         datetime_struct.year & 0xFF,
         (datetime_struct.year >> 8) & 0xFF,
         datetime_struct.month,
@@ -46,10 +46,10 @@ def main():
         current_time = get_datetime(ser)
         print(time.localtime(current_time))
         time.sleep(0.5)
-        # set_datetime(ser, datetime.datetime.now())
-        # time.sleep(0.5)
-        # current_time = get_datetime(ser)
-        # print(time.localtime(current_time))
+        set_datetime(ser, datetime.datetime.now())
+        time.sleep(0.5)
+        current_time = get_datetime(ser)
+        print(time.localtime(current_time))
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ use defmt::{debug, error, info, Format};
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, signal::Signal};
-use embassy_time::Timer;
+use embassy_time::{Duration, Ticker, Timer};
 use embedded_hal_async::i2c::I2c;
 use heapless::index_map::FnvIndexMap;
 
@@ -43,8 +43,12 @@ pub async fn nixie_controller_task(
         embassy_stm32::gpio::Speed::VeryHigh,
     );
     let i2c_dev = I2cDevice::new(i2c_bus);
-    let mut nixie_controller: NixieController<'_, _, N_OF_DIGITS> =
-        NixieController::new(i2c_dev, hv_enable_pin, reset_pins);
+    let mut nixie_controller: NixieController<'_, _, N_OF_DIGITS> = NixieController::new(
+        i2c_dev,
+        hv_enable_pin,
+        reset_pins,
+        RefreshPolicy::EveryXMinutes(1),
+    );
 
     while nixie_controller.get_max_number() == 0 {
         match nixie_controller.init_modules().await {
@@ -54,8 +58,42 @@ pub async fn nixie_controller_task(
         Timer::after_millis(500).await;
     }
     info!("Max number: {}", nixie_controller.get_max_number());
+    let mut last_refresh = 0;
     loop {
+        // The signal should be set every second
         let (num, comma) = display_signal.wait().await;
+        match nixie_controller.refresh_policy {
+            RefreshPolicy::EveryXMinutes(x) => {
+                if num - last_refresh >= x.into() {
+                    match nixie_controller.refresh_all(5).await {
+                        Ok(_) => {
+                            last_refresh = num;
+                        }
+                        Err(e) => error!("Module refresh failed : {:?}", e),
+                    }
+                }
+            }
+            RefreshPolicy::EveryXHours(x) => {
+                if (num / 100) - last_refresh >= x.into() {
+                    match nixie_controller.refresh_all(5).await {
+                        Ok(_) => {
+                            last_refresh = num;
+                        }
+                        Err(e) => error!("Module refresh failed : {:?}", e),
+                    }
+                }
+            }
+            RefreshPolicy::At(hour, minute) => {
+                if (num / 100) == hour.into() && (num % 100) == minute.into() {
+                    match nixie_controller.refresh_all(5).await {
+                        Ok(_) => {
+                            last_refresh = num;
+                        }
+                        Err(e) => error!("Module refresh failed : {:?}", e),
+                    }
+                }
+            }
+        }
         match nixie_controller.display_integer(num as usize).await {
             Ok(_) => {}
             Err(e) => error!("Cannot display integer {} : {:?}", num, e),
@@ -112,6 +150,14 @@ where
     }
 }
 
+#[allow(unused)]
+pub enum RefreshPolicy {
+    EveryXMinutes(u8),
+    EveryXHours(u8),
+    /// Hour, Minute
+    At(u8, u8),
+}
+
 pub struct NixieController<'nc, I2C, const N: usize>
 where
     I2C: I2c,
@@ -121,6 +167,7 @@ where
     smallest_unavailable_number: usize,
     available_digits: usize,
     hv_enable: Output<'nc>,
+    refresh_policy: RefreshPolicy,
     i2c: I2C,
 }
 
@@ -128,7 +175,12 @@ impl<'nc, I2C, const N: usize> NixieController<'nc, I2C, N>
 where
     I2C: I2c,
 {
-    pub fn new(i2c: I2C, hv_enable_pin: Output<'nc>, mut pin_positions: [Output<'nc>; N]) -> Self {
+    pub fn new(
+        i2c: I2C,
+        hv_enable_pin: Output<'nc>,
+        mut pin_positions: [Output<'nc>; N],
+        refresh_policy: RefreshPolicy,
+    ) -> Self {
         for pin in pin_positions.iter_mut() {
             pin.set_low(); // Disable all modules when creating the controller
         }
@@ -138,6 +190,7 @@ where
             smallest_unavailable_number: 1,
             available_digits: 0,
             hv_enable: hv_enable_pin,
+            refresh_policy,
             i2c,
         }
     }
@@ -333,6 +386,10 @@ where
         self.smallest_unavailable_number - 1
     }
 
+    pub fn get_number_of_modules(&self) -> usize {
+        self.nixie_modules.len()
+    }
+
     #[allow(unused)]
     pub async fn get_reported_hv(
         &mut self,
@@ -346,6 +403,49 @@ where
             .await
             .map_err(|e| NixieControllerError::CommunicationError(e))
     }
+
+    pub async fn refresh(
+        &mut self,
+        position_on_display: u8,
+        refresh_delay_ms: u8,
+    ) -> Result<(), NixieControllerError<I2C>> {
+        self.enable_hv();
+        let Some(module) = self.nixie_modules.get_mut(&position_on_display) else {
+            return Err(NixieControllerError::InvalidPosition);
+        };
+        info!(
+            "Refreshing module on position: {} with delay 10x{}ms",
+            position_on_display, refresh_delay_ms
+        );
+        let mut ticker = Ticker::every(Duration::from_millis(refresh_delay_ms.into()));
+        let current_num = module.displayed_number.clone();
+        for i in 0..=9 {
+            module
+                .display(&mut self.i2c, NixieModuleValues::from(i + 0x80))
+                .await
+                .map_err(|e| NixieControllerError::CommunicationError(e))?;
+            ticker.next().await;
+        }
+        if current_num != NixieModuleValues::Off {
+            module
+                .display(&mut self.i2c, current_num)
+                .await
+                .map_err(|e| NixieControllerError::CommunicationError(e))
+        } else {
+            self.disable_hv();
+            Ok(())
+        }
+    }
+
+    pub async fn refresh_all(
+        &mut self,
+        refresh_delay_ms: u8,
+    ) -> Result<(), NixieControllerError<I2C>> {
+        for i in 0..self.get_number_of_modules() {
+            self.refresh(i as u8, refresh_delay_ms).await?;
+        }
+        Ok(())
+    }
 }
 
 #[allow(unused)]
@@ -353,7 +453,10 @@ where
 pub enum NixieModuleRegisters {
     Address = 0x0,
     Value = 0x1,
-    HighVoltage = 0x2,
+    HighVoltageLowByte = 0x2,
+    HighVoltageHighByte = 0x3,
+    PwmValue = 0x4,
+    CommaBrightnessCompensation = 0x5,
 }
 
 #[derive(PartialEq, Clone)]
@@ -520,9 +623,36 @@ where
     }
 
     pub async fn get_hv_reading(&mut self, i2c: &mut I2C) -> Result<u16, I2C::Error> {
-        let mut buf = [NixieModuleRegisters::HighVoltage as u8, 0, 0];
+        let mut buf = [NixieModuleRegisters::HighVoltageLowByte as u8, 0, 0];
         i2c.read(self.address, &mut buf).await?;
         let hv_value = ((buf[2] as u16) << 8) | buf[1] as u16;
         Ok(hv_value)
+    }
+
+    pub async fn set_pwm_duty_cycle(
+        &mut self,
+        i2c: &mut I2C,
+        new_duty_cycle_percent: u8,
+    ) -> Result<(), I2C::Error> {
+        if new_duty_cycle_percent > 100 {
+            error!("Invalid duty cycle percent");
+            Ok(())
+        } else {
+            let converted_duty_cycle = new_duty_cycle_percent / 5;
+            let mut buf = [NixieModuleRegisters::PwmValue as u8, converted_duty_cycle];
+            i2c.write(self.address, &mut buf).await
+        }
+    }
+
+    pub async fn set_comma_brightness_compensation(
+        &mut self,
+        i2c: &mut I2C,
+        enable: bool,
+    ) -> Result<(), I2C::Error> {
+        let mut buf = [
+            NixieModuleRegisters::CommaBrightnessCompensation as u8,
+            enable as u8,
+        ];
+        i2c.write(self.address, &mut buf).await
     }
 }
