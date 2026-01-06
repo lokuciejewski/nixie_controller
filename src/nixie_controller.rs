@@ -58,6 +58,12 @@ pub async fn nixie_controller_task(
         Timer::after_millis(500).await;
     }
     info!("Max number: {}", nixie_controller.get_max_number());
+    match nixie_controller.set_brightness(90).await {
+        Ok(_) => {}
+        Err(e) => {
+            error!("Failed to set brightness: {:?}", e);
+        }
+    }
     let mut last_refresh = 0;
     loop {
         // The signal should be set every second
@@ -110,6 +116,7 @@ where
     I2C: I2c,
 {
     CommunicationError(I2C::Error),
+    InvalidParameter,
     InvalidPosition,
     ModuleNotFound,
     TooManyDigits,
@@ -125,6 +132,7 @@ where
             Self::CommunicationError(arg0) => {
                 f.debug_tuple("CommunicationError").field(arg0).finish()
             }
+            Self::InvalidParameter => write!(f, "InvalidParameter"),
             Self::InvalidPosition => write!(f, "InvalidPosition"),
             Self::TooManyDigits => write!(f, "TooManyDigits"),
             Self::InternalError => write!(f, "InternalError"),
@@ -142,6 +150,7 @@ where
             Self::CommunicationError(_) => {
                 defmt::write!(fmt, "CommunicationError")
             }
+            Self::InvalidParameter => defmt::write!(fmt, "InvalidParameter"),
             Self::InvalidPosition => defmt::write!(fmt, "InvalidPosition"),
             Self::TooManyDigits => defmt::write!(fmt, "TooManyDigits"),
             Self::InternalError => defmt::write!(fmt, "InternalError"),
@@ -446,6 +455,23 @@ where
         }
         Ok(())
     }
+
+    pub async fn set_brightness(
+        &mut self,
+        brightness_percentage: u8,
+    ) -> Result<(), NixieControllerError<I2C>> {
+        if brightness_percentage > 100 || brightness_percentage % 5 != 0 {
+            return Err(NixieControllerError::InvalidParameter);
+        }
+        info!("Setting brightness to {}%", brightness_percentage);
+        for (_, module) in &mut self.nixie_modules {
+            module
+                .set_pwm_duty_cycle(&mut self.i2c, brightness_percentage)
+                .await
+                .map_err(|e| NixieControllerError::CommunicationError(e))?;
+        }
+        Ok(())
+    }
 }
 
 #[allow(unused)]
@@ -638,9 +664,13 @@ where
             error!("Invalid duty cycle percent");
             Ok(())
         } else {
-            let converted_duty_cycle = new_duty_cycle_percent / 5;
-            let mut buf = [NixieModuleRegisters::PwmValue as u8, converted_duty_cycle];
-            i2c.write(self.address, &mut buf).await
+            let converted_duty_cycle: u8 = new_duty_cycle_percent / 5;
+            debug!("New brightness: {}", converted_duty_cycle);
+            i2c.write(
+                self.address,
+                &[NixieModuleRegisters::PwmValue as u8, converted_duty_cycle],
+            )
+            .await
         }
     }
 
