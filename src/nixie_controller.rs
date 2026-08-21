@@ -58,7 +58,7 @@ pub async fn nixie_controller_task(
         Timer::after_millis(500).await;
     }
     info!("Max number: {}", nixie_controller.get_max_number());
-    match nixie_controller.set_brightness(90).await {
+    match nixie_controller.set_brightness(60).await {
         Ok(_) => {}
         Err(e) => {
             error!("Failed to set brightness: {:?}", e);

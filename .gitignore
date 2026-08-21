@@ -2,3 +2,6 @@ target/
 .vscode/
 Cargo.lock
 __pycache__/
+kicad_files/controller/controller-backups
+kicad_files/controller/production
+kicad_files/controller/fabrication-toolkit-options.json
